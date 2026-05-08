@@ -83,6 +83,16 @@ You can also run one case directly:
 rqp test-plugin --plugin ./your-plugin.lua --case ./.reqpack-test/core/info.lua
 ```
 
+## CI
+
+Template repo validates itself in GitHub Actions.
+
+- Linux amd64 and arm64 jobs use Podman with published `ghcr.io/coditary/reqpack:<tag>` runtime.
+- macOS arm64 job downloads published Darwin release bundle and runs it natively.
+- CI checks both direct `template.lua` execution and renamed plugin-directory execution.
+
+If template starts depending on newer ReqPack runtime behavior, update workflow variable `REQPACK_RUNTIME_TAG`.
+
 ## Notes
 
 - Keep comments short.
