@@ -9,9 +9,7 @@ It ships a tiny no-op skeleton that shows where metadata, bootstrap logic, comma
 - `template.lua`: full wrapper skeleton with all common entry points
 - `bootstrap.lua`: optional bootstrap stub
 - `API.md`: small API quick reference based on `ReqPack.wiki`
-- `.reqpack-test/core/info.lua`: minimal `info` conformance example
-- `.reqpack-test/core/list.lua`: minimal `list` conformance example
-- `.reqpack-test/core/search.lua`: minimal `search` conformance example
+- `.reqpack-test/core/*.lua`: starter conformance cases for core wrapper paths
 
 ## How To Use
 
@@ -20,6 +18,22 @@ It ships a tiny no-op skeleton that shows where metadata, bootstrap logic, comma
 3. Replace placeholder metadata in `getName()`, `getVersion()`, and `getCategories()`.
 4. Add real package-manager logic to `install`, `remove`, `update`, `list`, `search`, and `info`.
 5. Adjust `.reqpack-test/core/*.lua` so they match your plugin behavior.
+
+## Recommended Workflow
+
+For most wrapper plugins, this repository already contains enough to start.
+Use full ReqPack wiki only when a runtime detail is still unclear.
+
+Work in this order:
+
+1. Read `API.md`.
+2. Rename `template.lua` to your plugin id.
+3. Replace all `template` placeholders.
+4. Add package-manager existence check in `bootstrap()` or `plugin.init()`.
+5. Implement wrapper methods.
+6. Update `.reqpack-test/core/*.lua`.
+   If `bootstrap()` or `init()` runs commands, add matching `fakeExec` rules in tests.
+7. Run `rqp test-plugin --plugin ./your-plugin.lua --preset core`.
 
 ## File Guide
 
@@ -55,7 +69,18 @@ The shipped version only returns `true`.
 
 ### `.reqpack-test/core/*.lua`
 
-Minimal hermetic plugin tests.
+Hermetic plugin tests.
+
+Template ships starter cases for:
+
+- `install`
+- `installLocal`
+- `remove`
+- `update`
+- `list`
+- `search`
+- `info`
+- `outdated`
 
 They show how ReqPack test cases are structured:
 

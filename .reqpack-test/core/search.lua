@@ -5,6 +5,7 @@ return {
     system = "template",
     prompt = "delta",
   },
+  fakeExec = {},
   expect = {
     success = true,
     events = { "searched" },

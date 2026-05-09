@@ -3,6 +3,38 @@
 Short reference for wrapper authors.
 Source of truth is ReqPack wiki page `Extending-Writing-Lua-Plugins` from this project.
 
+## Recommended Workflow
+
+If you are turning this template into real plugin, use this order:
+
+1. Read this file once front to back.
+2. Read `template.lua`, `bootstrap.lua`, and `.reqpack-test/core/*.lua`.
+3. Rename `template.lua` to `<plugin-id>.lua`.
+4. Replace all `template` placeholders with real plugin id, system name, and binary name.
+5. Put package-manager existence check in `bootstrap()` or `plugin.init()`.
+6. Implement methods in this order:
+   - `getMissingPackages`
+   - `install`
+   - `installLocal`
+   - `remove`
+   - `update`
+   - `list`
+   - `search`
+   - `info`
+   - `outdated`
+7. Update `.reqpack-test/core/*.lua`.
+8. Run `rqp test-plugin --plugin ./<plugin-id>.lua --preset core`.
+
+For most wrappers, this repository already covers file layout, method names, and test-case format.
+Open full ReqPack wiki only when a runtime detail is still unclear.
+
+## Files You Usually Edit
+
+- `<plugin-id>.lua`: main wrapper implementation
+- `bootstrap.lua`: optional one-time setup or binary check
+- `.reqpack-test/core/*.lua`: hermetic plugin tests
+- `README.md`: rename example commands if needed
+
 ## Plugin Layout
 
 Expected layout:
@@ -56,6 +88,34 @@ Optional metadata:
 ```lua
 plugin.fileExtensions = { ".rpm", ".deb" }
 ```
+
+## Where To Put "tool exists" Checks
+
+For most wrapper plugins, binary checks belong in one of these places:
+
+- `bootstrap()` when you want one early gate before plugin loads
+- `plugin.init()` when you want runtime readiness check after plugin table exists
+
+Generic example:
+
+```lua
+function bootstrap()
+  return reqpack.exec.run("command -v your-binary >/dev/null 2>&1").success
+end
+```
+
+Or:
+
+```lua
+function plugin.init()
+  return reqpack.exec.run("command -v your-binary >/dev/null 2>&1").success
+end
+```
+
+Use one of them unless you have a concrete reason to split behavior.
+
+If `bootstrap()` or `init()` runs shell commands, remember that `rqp test-plugin` must be able to fake those commands too.
+Add matching `fakeExec` rules in your test cases when needed.
 
 ## `context` Object
 
@@ -141,6 +201,30 @@ Examples:
 
 Lazy `return packages` works, but planning quality gets worse.
 
+Common wrapper pattern:
+
+```lua
+function plugin.getMissingPackages(packages)
+  local missing = {}
+  for _, pkg in ipairs(packages or {}) do
+    local installed = false -- replace with real check
+    if pkg.action == "remove" then
+      if installed then
+        table.insert(missing, pkg)
+      end
+    elseif pkg.action == "update" then
+      local hasUpdate = false -- replace with real check
+      if hasUpdate then
+        table.insert(missing, pkg)
+      end
+    elseif not installed then
+      table.insert(missing, pkg)
+    end
+  end
+  return missing
+end
+```
+
 ### `list`, `search`, `outdated`
 
 Return array of package info tables.
@@ -194,6 +278,8 @@ function plugin.install(context, packages)
 end
 ```
 
+`installLocal(context, path)` is same pattern, but request uses `localPath` instead of `packages`.
+
 ## Testing
 
 ReqPack has hermetic plugin tests.
@@ -211,6 +297,63 @@ Case files are Lua tables with:
 
 Template already ships example cases.
 
+### Case File Anatomy
+
+Minimal install case:
+
+```lua
+return {
+  name = "install success",
+  request = {
+    action = "install",
+    system = "demo",
+    packages = {
+      { name = "delta", version = "1.0.0" }
+    }
+  },
+  fakeExec = {
+    {
+      match = "demo-pm install delta",
+      exitCode = 0,
+      stdout = "done\n",
+      stderr = "",
+      success = true,
+    }
+  },
+  expect = {
+    success = true,
+    commands = { "demo-pm install delta" },
+    stdout = { "done\n" },
+    events = { "installed", "success" },
+  }
+}
+```
+
+To test `installLocal(context, path)`, use:
+
+```lua
+request = {
+  action = "install",
+  system = "demo",
+  localPath = "/tmp/demo.tgz",
+}
+```
+
+### Recommended Starter Test Matrix
+
+Template ships starter cases for:
+
+- `install`
+- `installLocal`
+- `remove`
+- `update`
+- `list`
+- `search`
+- `info`
+- `outdated`
+
+If your plugin cannot support one path yet, keep method and test explicit instead of silently dropping it.
+
 ## Best Practices
 
 - Keep wrapper thin. Let real package manager do real work.
@@ -219,6 +362,7 @@ Template already ships example cases.
 - Add `resolvePackage()` later if exact version lookup is possible.
 - Keep command parsing deterministic.
 - Start with template, then replace placeholders step by step.
+- Use local template files as first reference, not external repos.
 
 ## Full Docs
 

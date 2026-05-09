@@ -1,15 +1,15 @@
 return {
-  name = "template list",
+  name = "template outdated",
   request = {
-    action = "list",
+    action = "outdated",
     system = "template",
   },
   fakeExec = {},
   expect = {
     success = true,
-    events = { "listed" },
+    events = { "outdated" },
     eventPayloads = {
-      listed = "{}",
+      outdated = "{}",
     },
     resultCount = 0,
   }

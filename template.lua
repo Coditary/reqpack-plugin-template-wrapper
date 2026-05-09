@@ -1,5 +1,17 @@
 plugin = {}
 
+-- Replace these values first.
+local PLUGIN_NAME = "Template Wrapper"
+local PLUGIN_VERSION = "0.1.0"
+local REQUIRED_BINARY = ""
+
+-- Convert this template in this order:
+-- 1. rename file to <plugin-id>.lua
+-- 2. replace all "template" placeholders
+-- 3. add binary check in bootstrap() or init()
+-- 4. replace safe placeholder behavior with real package-manager commands
+-- 5. update .reqpack-test/core/*.lua to match real behavior
+
 local function trim(value)
     return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
@@ -19,13 +31,41 @@ local function emit_event(context, name, payload)
     end
 end
 
+local function begin_step(context, label)
+    if context == nil or context.tx == nil then
+        return
+    end
+
+    local fn = context.tx.begin_step
+    if type(fn) == "function" then
+        fn(label)
+    end
+end
+
+local function tx_success(context)
+    if context == nil or context.tx == nil then
+        return
+    end
+
+    local fn = context.tx.success
+    if type(fn) == "function" then
+        fn()
+    end
+end
+
+local function command_exists(binary)
+    return reqpack.exec.run("command -v " .. shell_quote(binary) .. " >/dev/null 2>&1").success
+end
+
+plugin.fileExtensions = {}
+
 -- Put plugin identity and user-visible metadata here.
 function plugin.getName()
-    return "Template Wrapper"
+    return PLUGIN_NAME
 end
 
 function plugin.getVersion()
-    return "0.1.0"
+    return PLUGIN_VERSION
 end
 
 -- Return external tools or bootstrap dependencies if plugin needs them.
@@ -44,22 +84,35 @@ function plugin.getMissingPackages(packages)
 end
 
 -- Build and run package-manager install command here.
+-- Typical flow: begin step -> run command -> emit installed -> tx.success.
 function plugin.install(context, packages)
+    begin_step(context, "install template packages")
+    emit_event(context, "installed", packages or {})
+    tx_success(context)
     return true
 end
 
 -- Handle local files like .deb, .rpm, archives, or extracted dirs here.
 function plugin.installLocal(context, path)
+    begin_step(context, "install local template artifact")
+    emit_event(context, "installed", { path = path, localTarget = true })
+    tx_success(context)
     return true
 end
 
 -- Build and run remove command here.
 function plugin.remove(context, packages)
+    begin_step(context, "remove template packages")
+    emit_event(context, "deleted", packages or {})
+    tx_success(context)
     return true
 end
 
 -- Build and run update command here.
 function plugin.update(context, packages)
+    begin_step(context, "update template packages")
+    emit_event(context, "updated", packages or {})
+    tx_success(context)
     return true
 end
 
@@ -111,7 +164,11 @@ function plugin.info(context, name)
 end
 
 -- Check whether required binaries or environment are ready.
+-- Set REQUIRED_BINARY above if plugin needs one CLI tool available.
 function plugin.init()
+    if REQUIRED_BINARY ~= "" then
+        return command_exists(REQUIRED_BINARY)
+    end
     return true
 end
 
