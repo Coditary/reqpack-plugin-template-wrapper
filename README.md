@@ -2,22 +2,26 @@
 
 GitHub template for new ReqPack wrapper plugins.
 
-It ships a tiny no-op skeleton that shows where metadata, bootstrap logic, command execution, and plugin tests belong.
+It ships a tiny no-op bundle skeleton that shows where plugin metadata, runtime code, install/remove hook stubs, and plugin tests belong.
 
 ## Included Files
 
-- `template.lua`: full wrapper skeleton with all common entry points
-- `bootstrap.lua`: optional bootstrap stub
+- `metadata.json`: plugin id and bundle metadata
+- `reqpack.lua`: plugin bundle manifest with `apiVersion` and `depends`
+- `run.lua`: full wrapper skeleton with common entry points
+- `scripts/install.lua`: package install hook stub required by bundle format
+- `scripts/remove.lua`: package remove hook stub required by bundle format
 - `API.md`: small API quick reference based on `ReqPack.wiki`
 - `.reqpack-test/core/*.lua`: starter conformance cases for core wrapper paths
 
 ## How To Use
 
 1. Create a new repository from this template.
-2. Rename `template.lua` to your plugin id, for example `brew.lua` or `apt.lua`.
-3. Replace placeholder metadata in `getName()`, `getVersion()`, and `getCategories()`.
-4. Add real package-manager logic to `install`, `remove`, `update`, `list`, `search`, and `info`.
-5. Adjust `.reqpack-test/core/*.lua` so they match your plugin behavior.
+2. Edit `metadata.json` so `name` matches your plugin id.
+3. Replace placeholder metadata in `run.lua` methods such as `getName()`, `getVersion()`, and `getCategories()`.
+4. Add plugin dependencies to `reqpack.lua` `depends` if your wrapper needs other ReqPack systems.
+5. Add real package-manager logic to `install`, `remove`, `update`, `list`, `search`, and `info`.
+6. Adjust `.reqpack-test/core/*.lua` so they match your plugin behavior.
 
 ## Recommended Workflow
 
@@ -27,20 +31,20 @@ Use full ReqPack wiki only when a runtime detail is still unclear.
 Work in this order:
 
 1. Read `API.md`.
-2. Rename `template.lua` to your plugin id.
+2. Edit `metadata.json` first.
 3. Replace all `template` placeholders.
-4. Add package-manager existence check in `bootstrap()` or `plugin.init()`.
+4. Add package-manager existence check in `plugin.init()`.
 5. Implement wrapper methods.
 6. Update `.reqpack-test/core/*.lua`.
-   If `bootstrap()` or `init()` runs commands, add matching `fakeExec` rules in tests.
-7. Run `rqp test-plugin --plugin ./your-plugin.lua --preset core`.
+   If `init()` runs commands, add matching `fakeExec` rules in tests.
+7. Run `rqp test-plugin --plugin . --preset core` from template root.
 
 ## File Guide
 
 Before filling in real behavior, read `API.md`.
 It is short and points back to full docs in `ReqPack.wiki/Extending-Writing-Lua-Plugins.md`.
 
-### `template.lua`
+### `run.lua`
 
 Main wrapper file.
 
@@ -54,18 +58,27 @@ Important sections:
 The shipped implementation is intentionally empty.
 It returns safe defaults and emits a few example events so test cases show expected result shapes.
 
-### `bootstrap.lua`
+### `metadata.json`
 
-Optional setup hook.
+Bundle metadata.
 
-Put things here like:
+- `name` is plugin id used for discovery
+- `version` is bundle version
+- `summary`, `description`, and `license` are required
 
-- dependency checks
-- first-run marker files
-- helper binary downloads
-- local cache preparation
+### `reqpack.lua`
 
-The shipped version only returns `true`.
+Bundle manifest.
+
+- keep `apiVersion = 1`
+- declare plugin dependencies in `depends = { "sys:java" }` style when needed
+
+### `scripts/install.lua` and `scripts/remove.lua`
+
+Required bundle hook files.
+
+Wrapper plugins usually keep these as tiny `return true` stubs.
+ReqPack requires them for bundle validity even when wrapper logic lives in `run.lua`.
 
 ### `.reqpack-test/core/*.lua`
 
@@ -90,13 +103,13 @@ They show how ReqPack test cases are structured:
 
 ## Running Plugin Tests
 
-After renaming `template.lua` to your plugin id, run:
+From template root, run:
 
 ```bash
-rqp test-plugin --plugin ./your-plugin.lua --preset core
+rqp test-plugin --plugin . --preset core
 ```
 
-Or point at plugin directory from its parent directory after you renamed file to match directory name:
+Or point at bundle directory from parent directory:
 
 ```bash
 rqp test-plugin --plugin ./your-plugin-dir --preset core
@@ -105,7 +118,7 @@ rqp test-plugin --plugin ./your-plugin-dir --preset core
 You can also run one case directly:
 
 ```bash
-rqp test-plugin --plugin ./your-plugin.lua --case ./.reqpack-test/core/info.lua
+rqp test-plugin --plugin . --case ./.reqpack-test/core/info.lua
 ```
 
 ## CI
@@ -114,7 +127,7 @@ Template repo validates itself in GitHub Actions.
 
 - Linux amd64 and arm64 jobs use Podman with published `ghcr.io/coditary/reqpack:<tag>` runtime.
 - macOS arm64 job downloads published Darwin release bundle and runs it natively.
-- CI checks both direct `template.lua` execution and renamed plugin-directory execution.
+- CI checks direct bundle-directory execution and copied bundle-directory execution.
 
 If template starts depending on newer ReqPack runtime behavior, update workflow variable `REQPACK_RUNTIME_TAG`.
 

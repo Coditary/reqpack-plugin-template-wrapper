@@ -8,10 +8,10 @@ Source of truth is ReqPack wiki page `Extending-Writing-Lua-Plugins` from this p
 If you are turning this template into real plugin, use this order:
 
 1. Read this file once front to back.
-2. Read `template.lua`, `bootstrap.lua`, and `.reqpack-test/core/*.lua`.
-3. Rename `template.lua` to `<plugin-id>.lua`.
+2. Read `metadata.json`, `reqpack.lua`, `run.lua`, and `.reqpack-test/core/*.lua`.
+3. Edit `metadata.json` so `name` matches your plugin id.
 4. Replace all `template` placeholders with real plugin id, system name, and binary name.
-5. Put package-manager existence check in `bootstrap()` or `plugin.init()`.
+5. Put package-manager existence check in `plugin.init()`.
 6. Implement methods in this order:
    - `getMissingPackages`
    - `install`
@@ -23,15 +23,17 @@ If you are turning this template into real plugin, use this order:
    - `info`
    - `outdated`
 7. Update `.reqpack-test/core/*.lua`.
-8. Run `rqp test-plugin --plugin ./<plugin-id>.lua --preset core`.
+8. Run `rqp test-plugin --plugin . --preset core` from plugin root.
 
 For most wrappers, this repository already covers file layout, method names, and test-case format.
 Open full ReqPack wiki only when a runtime detail is still unclear.
 
 ## Files You Usually Edit
 
-- `<plugin-id>.lua`: main wrapper implementation
-- `bootstrap.lua`: optional one-time setup or binary check
+- `metadata.json`: plugin id and bundle metadata
+- `reqpack.lua`: bundle manifest with `apiVersion` and `depends`
+- `run.lua`: main wrapper implementation
+- `scripts/install.lua` and `scripts/remove.lua`: required bundle hook stubs
 - `.reqpack-test/core/*.lua`: hermetic plugin tests
 - `README.md`: rename example commands if needed
 
@@ -41,8 +43,12 @@ Expected layout:
 
 ```text
 <plugin-id>/
-  <plugin-id>.lua
-  bootstrap.lua        # optional
+  metadata.json
+  reqpack.lua
+  run.lua
+  scripts/
+    install.lua
+    remove.lua
   .reqpack-test/
     core/
 ```
@@ -50,8 +56,9 @@ Expected layout:
 Important:
 
 - main script must expose global `plugin` table
-- optional bootstrap hook is global `bootstrap()` function
-- script file name should match plugin id when used by plugin directory
+- `metadata.json.name` is plugin id used for discovery
+- wrapper logic lives in `run.lua`
+- `scripts/install.lua` and `scripts/remove.lua` must exist even if they only return `true`
 
 ## Required Methods
 
@@ -91,20 +98,9 @@ plugin.fileExtensions = { ".rpm", ".deb" }
 
 ## Where To Put "tool exists" Checks
 
-For most wrapper plugins, binary checks belong in one of these places:
-
-- `bootstrap()` when you want one early gate before plugin loads
-- `plugin.init()` when you want runtime readiness check after plugin table exists
+For most wrapper plugins, binary checks belong in `plugin.init()`.
 
 Generic example:
-
-```lua
-function bootstrap()
-  return reqpack.exec.run("command -v your-binary >/dev/null 2>&1").success
-end
-```
-
-Or:
 
 ```lua
 function plugin.init()
@@ -112,9 +108,7 @@ function plugin.init()
 end
 ```
 
-Use one of them unless you have a concrete reason to split behavior.
-
-If `bootstrap()` or `init()` runs shell commands, remember that `rqp test-plugin` must be able to fake those commands too.
+If `init()` runs shell commands, remember that `rqp test-plugin` must be able to fake those commands too.
 Add matching `fakeExec` rules in your test cases when needed.
 
 ## `context` Object
@@ -127,7 +121,6 @@ ReqPack passes `context` into action methods.
 context.plugin.id
 context.plugin.dir
 context.plugin.script
-context.plugin.bootstrap
 context.flags
 context.host
 context.proxy
@@ -285,8 +278,8 @@ end
 ReqPack has hermetic plugin tests.
 
 ```bash
-rqp test-plugin --plugin ./your-plugin.lua --preset core
-rqp test-plugin --plugin ./your-plugin.lua --case ./.reqpack-test/core/info.lua
+rqp test-plugin --plugin . --preset core
+rqp test-plugin --plugin . --case ./.reqpack-test/core/info.lua
 ```
 
 Case files are Lua tables with:
