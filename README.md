@@ -3,6 +3,7 @@
 GitHub template for new ReqPack wrapper plugins.
 
 It ships a tiny no-op bundle skeleton that shows where plugin metadata, runtime code, install/remove hook stubs, and plugin tests belong.
+Template is meant to be copied, renamed, then filled in with real package-manager logic.
 
 ## Included Files
 
@@ -11,17 +12,19 @@ It ships a tiny no-op bundle skeleton that shows where plugin metadata, runtime 
 - `run.lua`: full wrapper skeleton with common entry points
 - `scripts/install.lua`: package install hook stub required by bundle format
 - `scripts/remove.lua`: package remove hook stub required by bundle format
-- `API.md`: small API quick reference based on `ReqPack.wiki`
+- `API.md`: fuller runtime and testing reference based on `ReqPack.wiki`
 - `.reqpack-test/core/*.lua`: starter conformance cases for core wrapper paths
 
-## How To Use
+## Five-Minute Conversion Path
 
 1. Create a new repository from this template.
 2. Edit `metadata.json` so `name` matches your plugin id.
-3. Replace placeholder metadata in `run.lua` methods such as `getName()`, `getVersion()`, and `getCategories()`.
-4. Add plugin dependencies to `reqpack.lua` `depends` if your wrapper needs other ReqPack systems.
-5. Add real package-manager logic to `install`, `remove`, `update`, `list`, `search`, and `info`.
-6. Adjust `.reqpack-test/core/*.lua` so they match your plugin behavior.
+3. Read `API.md` once.
+4. Replace placeholder metadata in `run.lua` methods such as `getName()`, `getVersion()`, and `getCategories()`.
+5. Replace all `template` placeholders in `.reqpack-test/core/*.lua`.
+6. Add real package-manager logic to `getMissingPackages`, `install`, `installLocal`, `remove`, `update`, `list`, `search`, `info`, and `outdated`.
+7. Add binary/tool check in `plugin.init()` if wrapper needs one.
+8. Run `rqp test-plugin --plugin . --preset core` from template root.
 
 ## Recommended Workflow
 
@@ -30,10 +33,10 @@ Use full ReqPack wiki only when a runtime detail is still unclear.
 
 Work in this order:
 
-1. Read `API.md`.
-2. Edit `metadata.json` first.
-3. Replace all `template` placeholders.
-4. Add package-manager existence check in `plugin.init()`.
+1. Edit `metadata.json` first.
+2. Replace all `template` placeholders.
+3. Add package-manager existence check in `plugin.init()`.
+4. Add plugin dependencies to `reqpack.lua` `depends` if your wrapper needs other ReqPack systems.
 5. Implement wrapper methods.
 6. Update `.reqpack-test/core/*.lua`.
    If `init()` runs commands, add matching `fakeExec` rules in tests.
@@ -41,8 +44,8 @@ Work in this order:
 
 ## File Guide
 
-Before filling in real behavior, read `API.md`.
-It is short and points back to full docs in `ReqPack.wiki/Extending-Writing-Lua-Plugins.md`.
+Read `API.md` before filling in real behavior.
+It explains lifecycle timing, `context`, `reqpack.*`, exec results, optional hooks, and test-case anatomy.
 
 ### `run.lua`
 
@@ -55,8 +58,13 @@ Important sections:
 - command methods for install/remove/update/list/search/info
 - lifecycle methods `init()` and `shutdown()`
 
-The shipped implementation is intentionally empty.
-It returns safe defaults and emits a few example events so test cases show expected result shapes.
+Important lifecycle note:
+
+- `run.lua` executes before `plugin.init()`
+- ReqPack may read `getName()`, `getVersion()`, `getSecurityMetadata()`, and `plugin.fileExtensions` before `init()`
+
+Shipped implementation is intentionally empty.
+It returns safe defaults and emits example events so test cases show expected result shapes.
 
 ### `metadata.json`
 
@@ -101,6 +109,9 @@ They show how ReqPack test cases are structured:
 - `fakeExec`
 - `expect`
 
+`fakeExec` rules use substring matching.
+If no rule matches executed command, test runner returns failure with `exitCode = 127`.
+
 ## Running Plugin Tests
 
 From template root, run:
@@ -129,7 +140,15 @@ Template repo validates itself in GitHub Actions.
 - macOS arm64 job downloads published Darwin release bundle and runs it natively.
 - CI checks direct bundle-directory execution and copied bundle-directory execution.
 
+Copied-bundle test matters because template should still work after repository rename and plugin-id replacement, not only while living in original template directory.
+
 If template starts depending on newer ReqPack runtime behavior, update workflow variable `REQPACK_RUNTIME_TAG`.
+
+## Read Next
+
+- `API.md`: fuller runtime and testing reference
+- `ReqPack.wiki/Extending-Writing-Lua-Plugins.md`: source-backed engine contract
+- `ReqPack.wiki/Extending-Testing-Lua-Plugins.md`: deeper `rqp test-plugin` reference
 
 ## Notes
 

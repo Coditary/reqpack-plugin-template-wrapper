@@ -1,7 +1,7 @@
-# ReqPack Lua Plugin API Quick Reference
+# ReqPack Lua Plugin Template Reference
 
-Short reference for wrapper authors.
-Source of truth is ReqPack wiki page `Extending-Writing-Lua-Plugins` from this project.
+Template-local reference for wrapper authors.
+Source of truth for engine behavior is `ReqPack.wiki/Extending-Writing-Lua-Plugins.md`.
 
 ## Recommended Workflow
 
@@ -25,21 +25,9 @@ If you are turning this template into real plugin, use this order:
 7. Update `.reqpack-test/core/*.lua`.
 8. Run `rqp test-plugin --plugin . --preset core` from plugin root.
 
-For most wrappers, this repository already covers file layout, method names, and test-case format.
-Open full ReqPack wiki only when a runtime detail is still unclear.
+## Required Files
 
-## Files You Usually Edit
-
-- `metadata.json`: plugin id and bundle metadata
-- `reqpack.lua`: bundle manifest with `apiVersion` and `depends`
-- `run.lua`: main wrapper implementation
-- `scripts/install.lua` and `scripts/remove.lua`: required bundle hook stubs
-- `.reqpack-test/core/*.lua`: hermetic plugin tests
-- `README.md`: rename example commands if needed
-
-## Plugin Layout
-
-Expected layout:
+Expected bundle layout:
 
 ```text
 <plugin-id>/
@@ -53,16 +41,42 @@ Expected layout:
     core/
 ```
 
-Important:
+Files and roles:
 
-- main script must expose global `plugin` table
-- `metadata.json.name` is plugin id used for discovery
-- wrapper logic lives in `run.lua`
-- `scripts/install.lua` and `scripts/remove.lua` must exist even if they only return `true`
+- `metadata.json`: bundle metadata. `name` becomes plugin id used for discovery.
+- `reqpack.lua`: bundle manifest. Keep `apiVersion = 1`; add ReqPack-side `depends` here.
+- `run.lua`: real wrapper implementation loaded by `LuaBridge`.
+- `scripts/install.lua` and `scripts/remove.lua`: required for bundle validity even when wrapper logic lives in `run.lua`.
+- `.reqpack-test/core/*.lua`: hermetic test cases used by `rqp test-plugin --preset core`.
+- `README.md`: quickstart for people opening template repo first.
 
-## Required Methods
+## Runtime Lifecycle
 
-ReqPack expects these methods on `plugin`:
+Actual timing matters for wrapper authors:
+
+1. ReqPack validates bundle layout from `metadata.json` and `reqpack.lua`.
+2. First plugin construction executes `run.lua` immediately.
+3. During construction ReqPack may read:
+   - `plugin.getName()`
+   - `plugin.getVersion()`
+   - `plugin.getSecurityMetadata()`
+   - `plugin.fileExtensions`
+4. Only after contract validation does ReqPack call optional `plugin.init()`.
+5. Action/query methods run later as planner and executor need them.
+6. Optional `plugin.shutdown()` runs when plugin registry shuts down.
+
+Implications:
+
+- top-level `run.lua` code runs before `plugin.init()`
+- metadata methods should stay side-effect free
+- `plugin.fileExtensions` must be populated before `init()` if local-target detection depends on it
+- `getCategories()` can also be used on constructed plugin before `init()`
+
+## Required Plugin Contract
+
+Main script must expose global `plugin` table.
+
+Required methods:
 
 ```lua
 function plugin.getName() end
@@ -88,46 +102,121 @@ function plugin.outdated(context) end
 function plugin.resolvePackage(context, package) end
 function plugin.resolveProxyRequest(context, request) end
 function plugin.getSecurityMetadata() end
+function plugin.pack(context, projectPath, outputPath, flags) end
 ```
 
-Optional metadata:
+Optional static data:
 
 ```lua
 plugin.fileExtensions = { ".rpm", ".deb" }
 ```
 
-## Where To Put "tool exists" Checks
+Return rules:
 
-For most wrapper plugins, binary checks belong in `plugin.init()`.
+- boolean-style action methods treat no return as success
+- query methods treat no return as empty result
+- `getMissingPackages()` should return only packages that still need work
 
-Generic example:
+## Runtime Globals
+
+ReqPack injects these globals before executing `run.lua`:
 
 ```lua
-function plugin.init()
-  return reqpack.exec.run("command -v your-binary >/dev/null 2>&1").success
-end
+REQPACK_PLUGIN_ID
+REQPACK_PLUGIN_DIR
+REQPACK_PLUGIN_SCRIPT
+reqpack
 ```
 
-If `init()` runs shell commands, remember that `rqp test-plugin` must be able to fake those commands too.
-Add matching `fakeExec` rules in your test cases when needed.
+`print(...)` is also redirected into ReqPack output.
 
-## `context` Object
+### `reqpack`
 
-ReqPack passes `context` into action methods.
+Current global namespace:
 
-### Metadata
+```lua
+local result = reqpack.exec.run("command -v your-tool >/dev/null 2>&1")
+local host = reqpack.host
+```
+
+Important differences from `context.exec.run(...)`:
+
+- only plain command-string overload exists
+- output is tied to plugin scope, not current item id
+- `reqpack.host` is bridge-global host snapshot captured when plugin bridge is created
+
+## `context` Surface
+
+ReqPack passes `context` into action methods and most optional runtime hooks.
+
+### `context.plugin`
 
 ```lua
 context.plugin.id
 context.plugin.dir
 context.plugin.script
-context.flags
-context.host
-context.proxy
-context.repositories
 ```
 
-### Logging
+### `context.flags`
+
+Array of request/runtime flags currently active for this plugin call.
+
+### `context.host`
+
+Per-call host snapshot. Same shape as `reqpack.host`, but created for current call instead of bridge construction.
+
+Top-level sections:
+
+```lua
+context.host.platform
+context.host.os
+context.host.kernel
+context.host.cpu
+context.host.memory
+context.host.gpus
+context.host.storage
+context.host.cache
+```
+
+Examples inside those tables include fields such as:
+
+```lua
+context.host.platform.osFamily
+context.host.platform.arch
+context.host.os.id
+context.host.cpu.logicalCores
+context.host.memory.totalBytes
+context.host.cache.expiresAtEpoch
+```
+
+Use `context.host` when you want freshest host view during action execution.
+
+### `context.proxy`
+
+Available when current system has proxy config.
+
+```lua
+context.proxy.default
+context.proxy.targets
+context.proxy.options
+```
+
+### `context.repositories`
+
+Array of repository entries for current ecosystem. Each entry can expose fields such as:
+
+```lua
+repo.id
+repo.url
+repo.priority
+repo.enabled
+repo.type
+repo.auth
+repo.validation
+repo.scope
+```
+
+### `context.log`
 
 ```lua
 context.log.debug("...")
@@ -136,18 +225,24 @@ context.log.warn("...")
 context.log.error("...")
 ```
 
-### Transaction helpers
+### `context.tx`
 
 ```lua
 context.tx.status(42)
 context.tx.progress(50)
+context.tx.progress({ percent = 50, current = 10, currentUnit = "MB" })
 context.tx.begin_step("install packages")
 context.tx.commit()
 context.tx.success()
 context.tx.failed("install failed")
 ```
 
-### Domain events
+Notes:
+
+- `progress(50)` is valid shorthand for percent updates
+- table payloads can include `percent`, `current`, `currentUnit`, `total`, `totalUnit`, `speed`, `speedUnit`
+
+### `context.events`
 
 Use these to tell ReqPack what happened:
 
@@ -162,25 +257,127 @@ context.events.outdated(payload)
 context.events.unavailable(payload)
 ```
 
-### Helpers
+Payloads are serialized into text records. Use deterministic tables so tests stay stable.
+
+### `context.artifacts`
 
 ```lua
-local result = context.exec.run("your-command --flag")
-local tmpDir = context.fs.get_tmp_dir()
-local ok = context.net.download(url, destination)
 context.artifacts.register({ type = "file", path = "/tmp/out" })
 ```
 
-Global helper also exists:
+Use this when wrapper produces artifacts, especially in optional `plugin.pack()` flows.
+
+### `context.exec`
+
+Overloads:
 
 ```lua
-local result = reqpack.exec.run("command -v your-tool >/dev/null 2>&1")
-local host = reqpack.host
+local result = context.exec.run("command")
+local result = context.exec.run("command", rules)
 ```
 
-Use `context.exec.run(...)` inside action methods when possible.
+Return shape visible in Lua:
 
-## Data You Usually Return
+```lua
+result.success
+result.exitCode
+result.stdout
+result.stderr
+```
+
+Important behavior:
+
+- shell command runs as `/bin/sh -c <command>`
+- stdout/stderr transcript is merged into `result.stdout`
+- on failure without runner read error, merged transcript is copied into `result.stderr`
+- use this form inside action methods so output stays tied to current item when ReqPack has one
+
+### `context.fs`
+
+```lua
+local tmpDir = context.fs.get_tmp_dir()
+```
+
+ReqPack deletes these temp directories during plugin shutdown.
+
+### `context.net`
+
+```lua
+local ok = context.net.download(url, destinationPath)
+```
+
+Return type is boolean only.
+Lua side does not receive full `DownloadResult` object.
+
+### Summary
+
+Prefer:
+
+- `context.exec.run(...)` inside action methods
+- `reqpack.exec.run(...)` for top-level checks such as `plugin.init()`
+- `context.host` for call-time host decisions
+- `reqpack.host` only when bridge-time snapshot is enough
+
+## Exec Rules For `context.exec.run(command, rules)`
+
+Use exec rules when wrapper must react to command output while command is still running.
+
+Top-level shape:
+
+```lua
+local rules = {
+  initial = "default",
+  rules = {
+    {
+      state = "default",
+      source = "line",
+      regex = "^Loaded (.+)$",
+      repeat = true,
+      stop = false,
+      actions = {
+        { type = "log", level = "info", message = "${1}" },
+      },
+    },
+  },
+}
+```
+
+Schema rules that matter most for template authors:
+
+- top-level keys allowed only: `initial`, `rules`
+- `rules` must be contiguous 1-based array-style table
+- each rule must include `source`, `regex`, `actions`
+- `source` must be `line` or `screen`
+- `actions` must be non-empty contiguous 1-based array-style table
+
+Common action types:
+
+- `log`
+- `status`
+- `progress`
+- `begin_step`
+- `success`
+- `failed`
+- `event`
+- `artifact`
+- `send` for PTY-driven commands
+- `state` for internal rule-state tracking
+
+Runner selection:
+
+- empty ruleset: plain shell runner
+- rules with no `screen` rule and no `send` action: line runner
+- any `screen` rule or any `send` action: PTY runner
+
+Important placeholders:
+
+- `${0}` full regex match
+- `${1}`, `${2}`, ... capture groups
+- missing capture resolves to empty string
+
+If rule shape is malformed, command fails immediately with `success = false` and `exitCode = 1`.
+
+## Return Shapes You Usually Build
 
 ### `getMissingPackages(packages)`
 
@@ -188,39 +385,15 @@ Return only packages that still need work.
 
 Examples:
 
-- install: package not yet installed
+- install: package not installed yet
 - remove: package currently installed
 - update: package has newer version available
 
 Lazy `return packages` works, but planning quality gets worse.
 
-Common wrapper pattern:
-
-```lua
-function plugin.getMissingPackages(packages)
-  local missing = {}
-  for _, pkg in ipairs(packages or {}) do
-    local installed = false -- replace with real check
-    if pkg.action == "remove" then
-      if installed then
-        table.insert(missing, pkg)
-      end
-    elseif pkg.action == "update" then
-      local hasUpdate = false -- replace with real check
-      if hasUpdate then
-        table.insert(missing, pkg)
-      end
-    elseif not installed then
-      table.insert(missing, pkg)
-    end
-  end
-  return missing
-end
-```
-
 ### `list`, `search`, `outdated`
 
-Return array of package info tables.
+Return arrays of package info tables.
 
 Common fields:
 
@@ -240,101 +413,130 @@ Common fields:
 
 Return one package info table.
 
-## Typical Wrapper Pattern
+ReqPack accepts many more fields than template uses, including `homepage`, `license`, `dependencies`, `provides`, `tags`, and `extraFields`.
+If `summary` is empty, ReqPack copies `description` into it.
 
-Thin wrappers usually do this:
+## Optional Hooks
 
-1. check installed state in `getMissingPackages()`
-2. build shell command
-3. run command with `context.exec.run(...)`
-4. emit `context.tx.*` and `context.events.*`
-5. return `true` or parsed package info
+### `plugin.resolvePackage(context, package)`
 
-Example:
+Use this when exact version lookup is possible and you want better SBOM/audit coverage.
+
+### `plugin.resolveProxyRequest(context, request)`
+
+Must return table like:
 
 ```lua
-function plugin.install(context, packages)
-    if #packages == 0 then
-        return true
-    end
-
-    context.tx.begin_step("install packages")
-    local result = context.exec.run("example-pm install ...")
-    if not result.success then
-        context.tx.failed("install failed")
-        return false
-    end
-
-    context.events.installed(packages)
-    context.tx.success()
-    return true
-end
+{
+  targetSystem = "maven",
+  packages = { "org.junit:junit:4.13" },
+  flags = { "arch=noarch" },
+}
 ```
 
-`installLocal(context, path)` is same pattern, but request uses `localPath` instead of `packages`.
+Supported keys:
 
-## Testing
+- `targetSystem` required
+- `packages` optional string array
+- `localPath` optional string
+- `flags` optional string array
 
-ReqPack has hermetic plugin tests.
+Important rules:
+
+- `packages` and `localPath` are mutually exclusive
+- returning `nil` is treated as resolution failure, not pass-through
+
+### `plugin.getSecurityMetadata()`
+
+Optional table used for trust, thin-layer exec policy, and vulnerability mapping.
+ReqPack may read it before `plugin.init()`.
+
+## Testing With `rqp test-plugin`
+
+Core commands:
 
 ```bash
 rqp test-plugin --plugin . --preset core
 rqp test-plugin --plugin . --case ./.reqpack-test/core/info.lua
+rqp test-plugin --plugin . --cases ./.reqpack-test/core --report ./plugin-test-report.json
 ```
 
-Case files are Lua tables with:
+Case files return Lua table with:
 
+- `name`
 - `request`
 - `fakeExec`
 - `expect`
 
-Template already ships example cases.
+### `request`
 
-### Case File Anatomy
-
-Minimal install case:
-
-```lua
-return {
-  name = "install success",
-  request = {
-    action = "install",
-    system = "demo",
-    packages = {
-      { name = "delta", version = "1.0.0" }
-    }
-  },
-  fakeExec = {
-    {
-      match = "demo-pm install delta",
-      exitCode = 0,
-      stdout = "done\n",
-      stderr = "",
-      success = true,
-    }
-  },
-  expect = {
-    success = true,
-    commands = { "demo-pm install delta" },
-    stdout = { "done\n" },
-    events = { "installed", "success" },
-  }
-}
-```
-
-To test `installLocal(context, path)`, use:
+Typical fields:
 
 ```lua
 request = {
   action = "install",
   system = "demo",
+  prompt = "curl",
   localPath = "/tmp/demo.tgz",
+  packages = {
+    { name = "curl", version = "8.0.0" }
+  },
 }
 ```
 
-### Recommended Starter Test Matrix
+Use `localPath` with `action = "install"` to test `plugin.installLocal(context, path)`.
 
-Template ships starter cases for:
+### `fakeExec`
+
+`fakeExec` is ordered array of substring-match rules.
+
+```lua
+fakeExec = {
+  {
+    match = "demo-pm install curl",
+    exitCode = 0,
+    stdout = "done\n",
+    stderr = "",
+    success = true,
+  }
+}
+```
+
+Behavior:
+
+- first rule whose `match` string appears inside executed command wins
+- if `success` is omitted, runner derives it from `exitCode == 0`
+- if no rule matches command, test runner fails command with `exitCode = 127`
+- unmatched command stderr is `no fakeExec rule matched command: ...`
+
+This affects both:
+
+- `context.exec.run(...)`
+- `reqpack.exec.run(...)`
+
+If `plugin.init()` runs binary checks, include matching fake-exec rules in test cases or presets.
+
+### `expect`
+
+Common expectation keys:
+
+```lua
+expect = {
+  success = true,
+  commands = { "demo-pm install curl" },
+  stdout = { "done\n" },
+  stderr = {},
+  events = { "installed", "success" },
+  eventPayloads = {
+    success = "ok",
+  },
+  resultCount = 1,
+  resultName = "curl",
+  resultVersion = "8.0.0",
+}
+```
+
+Template ships starter core cases for:
 
 - `install`
 - `installLocal`
@@ -345,21 +547,21 @@ Template ships starter cases for:
 - `info`
 - `outdated`
 
-If your plugin cannot support one path yet, keep method and test explicit instead of silently dropping it.
+## Wrapper Author Checklist
 
-## Best Practices
-
-- Keep wrapper thin. Let real package manager do real work.
-- Emit events for visible results.
-- Add `installLocal()` if ecosystem supports local artifacts.
-- Add `resolvePackage()` later if exact version lookup is possible.
-- Keep command parsing deterministic.
-- Start with template, then replace placeholders step by step.
-- Use local template files as first reference, not external repos.
+1. Edit `metadata.json` first.
+2. Replace all `template` placeholders in code and tests.
+3. Keep `reqpack.lua.depends` aligned with real ReqPack-side dependencies.
+4. Add deterministic binary check in `plugin.init()` if needed.
+5. Implement `getMissingPackages()` with real installed-state logic.
+6. Use `context.exec.run(...)` in action methods.
+7. Emit `context.tx.*` and `context.events.*` for visible behavior.
+8. Update `.reqpack-test/core/*.lua` before expanding behavior further.
+9. Run `rqp test-plugin --plugin . --preset core`.
 
 ## Full Docs
 
-Read full wiki pages for details when working inside ReqPack repo:
+Read full repo docs when template-local reference still is not enough:
 
-- `ReqPack.wiki/Extending-ReqPack.md`
 - `ReqPack.wiki/Extending-Writing-Lua-Plugins.md`
+- `ReqPack.wiki/Extending-Testing-Lua-Plugins.md`

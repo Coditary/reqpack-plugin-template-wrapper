@@ -1,5 +1,7 @@
 plugin = {}
 
+-- `run.lua` executes as soon as ReqPack constructs the Lua bridge.
+-- ReqPack reads plugin metadata from this file before optional `plugin.init()` runs.
 -- Edit metadata.json first. metadata.json.name is plugin id used for discovery.
 -- Convert this template bundle in this order:
 -- 1. edit metadata.json fields
@@ -12,6 +14,8 @@ local PLUGIN_NAME = "Template Wrapper"
 local PLUGIN_VERSION = "0.1.0"
 local REQUIRED_BINARY = ""
 
+-- Small helpers keep action methods easy to replace when you swap placeholder
+-- behavior for real package-manager commands.
 local function trim(value)
     return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
@@ -57,8 +61,12 @@ local function command_exists(binary)
     return reqpack.exec.run("command -v " .. shell_quote(binary) .. " >/dev/null 2>&1").success
 end
 
+-- Populate this when your wrapper installs local artifacts by extension.
+-- ReqPack may read this table before plugin.init().
 plugin.fileExtensions = {}
 
+-- Keep these metadata methods side-effect free. ReqPack may call some of them
+-- before plugin.init() while it is still loading plugin details.
 function plugin.getName()
     return PLUGIN_NAME
 end
@@ -77,10 +85,15 @@ function plugin.getCategories()
     return { "Template", "Wrapper" }
 end
 
+-- Planner uses this to filter work before action methods run.
+-- `return packages` is valid, but real wrappers should detect installed/missing
+-- state so ReqPack can avoid unnecessary work.
 function plugin.getMissingPackages(packages)
     return packages or {}
 end
 
+-- Mutating action methods should usually emit tx/events so ReqPack can show
+-- useful progress and result records.
 function plugin.install(context, packages)
     begin_step(context, "install template packages")
     emit_event(context, "installed", packages or {})
@@ -88,6 +101,7 @@ function plugin.install(context, packages)
     return true
 end
 
+-- ReqPack calls installLocal when request uses localPath instead of packages.
 function plugin.installLocal(context, path)
     begin_step(context, "install local template artifact")
     emit_event(context, "installed", { path = path, localTarget = true })
@@ -121,6 +135,8 @@ function plugin.outdated(context)
     return items
 end
 
+-- Query methods return PackageInfo-like tables. Keep shapes deterministic so
+-- search/info/list/outdated remain easy to test with `rqp test-plugin`.
 function plugin.search(context, prompt)
     if trim(prompt) == "" then
         local empty = {}
@@ -152,6 +168,9 @@ function plugin.info(context, name)
     return item
 end
 
+-- Use init() for runtime availability checks such as required binaries.
+-- If tests exercise init(), add matching fakeExec rules so test-plugin can
+-- satisfy the same command contract hermetically.
 function plugin.init()
     if REQUIRED_BINARY ~= "" then
         return command_exists(REQUIRED_BINARY)
@@ -159,6 +178,8 @@ function plugin.init()
     return true
 end
 
+-- Keep shutdown lightweight. Temp dirs created through context.fs.get_tmp_dir()
+-- are cleaned up by ReqPack during bridge shutdown.
 function plugin.shutdown()
     return true
 end
